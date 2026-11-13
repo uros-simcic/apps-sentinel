@@ -2,7 +2,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from config import ConfigError, MAX_CONFIG_BYTES, load
+from config import (
+    ConfigError, MAX_CONFIG_BYTES, load, validate_identity,
+)
 
 
 class ConfigTests(unittest.TestCase):
@@ -37,3 +39,30 @@ class ConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(ConfigError):
                 load(Path(directory) / "missing.json")
+
+    def test_valid_identity(self):
+        validate_identity({
+            "owner_login": "example-owner",
+            "owner_id": 12345,
+            "control_repo": "example-owner/sentinel-run",
+        })
+
+    def test_invalid_identity(self):
+        valid = {
+            "owner_login": "example-owner",
+            "owner_id": 12345,
+            "control_repo": "example-owner/sentinel-run",
+        }
+        cases = (
+            {"owner_login": "-invalid"},
+            {"owner_id": True},
+            {"owner_id": 0},
+            {"owner_id": "12345"},
+            {"control_repo": "someone-else/sentinel-run"},
+            {"control_repo": "example-owner/../secret"},
+            {"control_repo": "example-owner/.."},
+        )
+        for change in cases:
+            with self.subTest(change=change):
+                with self.assertRaises(ConfigError):
+                    validate_identity({**valid, **change})
