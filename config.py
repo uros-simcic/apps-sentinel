@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 MAX_CONFIG_BYTES = 65536
@@ -42,3 +43,28 @@ def load(path):
     if not isinstance(data, dict):
         raise ConfigError("Configuration must be an object")
     return data
+
+
+def validate_identity(config):
+    login = config.get("owner_login")
+    owner_id = config.get("owner_id")
+    repo = config.get("control_repo")
+
+    if not isinstance(login, str) or not re.fullmatch(
+        r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?", login
+    ):
+        raise ConfigError("Invalid owner_login")
+
+    if type(owner_id) is not int or owner_id <= 0:
+        raise ConfigError("Invalid owner_id")
+
+    if not isinstance(repo, str) or not re.fullmatch(
+        r"[A-Za-z0-9-]+/[A-Za-z0-9_.-]+", repo
+    ):
+        raise ConfigError("Invalid control_repo")
+
+    repo_owner, repo_name = repo.split("/")
+    if repo_owner.lower() != login.lower():
+        raise ConfigError("Control repository must belong to owner")
+    if repo_name in (".", ".."):
+        raise ConfigError("Invalid control_repo")
