@@ -68,3 +68,65 @@ def validate_identity(config):
         raise ConfigError("Control repository must belong to owner")
     if repo_name in (".", ".."):
         raise ConfigError("Invalid control_repo")
+
+
+def _fields(value, expected):
+    if not isinstance(value, dict) or set(value) != expected:
+        raise ConfigError("Missing or unknown configuration fields")
+
+
+def validate(config):
+    _fields(config, {
+        "schema_version", "mode", "owner_login",
+        "owner_id", "control_repo", "apps",
+    })
+    validate_identity(config)
+
+    if type(config["schema_version"]) is not int or config["schema_version"] != 1:
+        raise ConfigError("Unsupported schema_version")
+    if config["mode"] not in ("preview", "active"):
+        raise ConfigError("Invalid mode")
+
+    apps = config["apps"]
+    if not isinstance(apps, list) or not 1 <= len(apps) <= 100:
+        raise ConfigError("Configure between one and 100 apps")
+
+    app_ids = set()
+    for app in apps:
+        _fields(app, {"id", "repo", "checks"})
+        name = app["id"]
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+            raise ConfigError("Invalid app ID")
+        if name in app_ids:
+            raise ConfigError("Duplicate app ID")
+        app_ids.add(name)
+        validate_identity({**config, "control_repo": app["repo"]})
+
+        checks = app["checks"]
+        if not isinstance(checks, list) or not 1 <= len(checks) <= 100:
+            raise ConfigError("Configure between one and 100 checks")
+
+        check_ids = set()
+        for check in checks:
+            _fields(check, {
+                "id", "kind", "repo", "workflow", "max_age_hours",
+            })
+            name = check["id"]
+            if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+                raise ConfigError("Invalid check ID")
+            if name in check_ids:
+                raise ConfigError("Duplicate check ID")
+            check_ids.add(name)
+            if check["kind"] != "workflow":
+                raise ConfigError("Unsupported check kind")
+            validate_identity({**config, "control_repo": check["repo"]})
+            workflow = check["workflow"]
+            if not isinstance(workflow, str) or not re.fullmatch(
+                r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\.ya?ml", workflow
+            ):
+                raise ConfigError("Invalid workflow filename")
+            age = check["max_age_hours"]
+            if type(age) not in (int, float) or not 0 < age <= 8760:
+                raise ConfigError("Invalid workflow freshness limit")
+
+    return config
