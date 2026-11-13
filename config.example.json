@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "mode": "preview",
+  "owner_login": "example-owner",
+  "owner_id": 12345,
+  "control_repo": "example-owner/apps-sentinel-run",
+  "apps": [
+    {
+      "id": "example-app",
+      "repo": "example-owner/example-app",
+      "checks": [
+        {
+          "id": "daily-run",
+          "kind": "workflow",
+          "repo": "example-owner/example-app-run",
+          "workflow": "daily.yml",
+          "max_age_hours": 36
+        }
+      ]
+    }
+  ]
+}
