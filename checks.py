@@ -61,3 +61,37 @@ def check_workflow(api, check, now=None):
         return "unknown", "GitHub workflow evidence unavailable"
     except (KeyError, TypeError, ValueError, AttributeError):
         return "unknown", "Malformed workflow evidence"
+
+
+def check_json(data, required_fields, timestamp_field, max_age_hours, now=None):
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("Timezone-aware observation time required")
+
+    def lookup(path):
+        value = data
+        for part in path.split("."):
+            value = value[part]
+        return value
+
+    try:
+        for field in required_fields:
+            if lookup(field) is None:
+                return "fail", "Required application value is missing"
+        timestamp = lookup(timestamp_field)
+    except (KeyError, TypeError):
+        return "fail", "Required application value is missing"
+
+    try:
+        created = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        if created.tzinfo is None or created.utcoffset() is None:
+            return "unknown", "Application timestamp lacks timezone"
+        age = (now - created).total_seconds() / 3600
+    except (TypeError, ValueError, AttributeError):
+        return "unknown", "Invalid application timestamp"
+
+    if age < 0:
+        return "unknown", "Application timestamp is in the future"
+    if age > max_age_hours:
+        return "fail", "Application output is stale"
+    return "pass", "Required application values are present and fresh"
