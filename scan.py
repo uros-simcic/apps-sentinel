@@ -9,6 +9,7 @@ from config import ConfigError, load, validate
 from github_client import APIError, GitHub
 from incidents import incident_key, new_incidents
 from repo_json import check_repo_json
+from state import load_state
 
 
 def scan(config, api, previous=None):
@@ -69,6 +70,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=("validate", "scan"))
     parser.add_argument("--config", default="config.json")
+    parser.add_argument(
+        "--state-issue", type=int,
+        help="Read previous incidents from a private state issue",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -77,7 +82,14 @@ def main(argv=None):
             print(json.dumps({"status": "valid", "mode": config["mode"]}))
             return 0
 
-        report = scan(config, GitHub(os.environ.get("READ_TOKEN")))
+        if config["mode"] != "preview":
+            raise ConfigError("Only preview scans are currently supported")
+        api = GitHub(os.environ.get("READ_TOKEN"))
+        previous = (
+            load_state(api, config, args.state_issue)
+            if args.state_issue is not None else None
+        )
+        report = scan(config, api, previous=previous)
         print(json.dumps(report, indent=2))
         return 0 if report["status"] == "pass" else 1
     except (ConfigError, APIError, ValueError) as exc:
