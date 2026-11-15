@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import Mock
 
-from proposal_page import parse_proposal
+from proposal_page import parse_proposal, render_proposal
 from proposal_store import publish_proposal
 from proposals import make_proposal
 
@@ -36,6 +36,7 @@ class ProposalStoreTests(unittest.TestCase):
             "diff": "-old\n+new\n",
         })
         api = Mock()
+        api.pages.return_value = []
         api.get.side_effect = responses.__getitem__
         api.create_issue.side_effect = lambda path, title, body: {
             "number": 8, "state": "open", "user": owner.copy(),
@@ -57,6 +58,51 @@ class ProposalStoreTests(unittest.TestCase):
         self.assertEqual(result["number"], 8)
         self.assertEqual(result["revision"], proposal["revision"])
         api.create_issue.assert_called_once()
+
+    def existing_issue(self, config, proposal):
+        return {
+            "number": 8,
+            "state": "open",
+            "user": {"id": config["owner_id"]},
+            "title": proposal["repo"] + ": Handle missing input",
+            "body": render_proposal(proposal),
+            "html_url": (
+                "https://github.com/" + config["control_repo"] + "/issues/8"
+            ),
+        }
+
+    def test_repeated_publication_reuses_existing_issue(self):
+        api, config, proposal, _ = self.fixture()
+        api.pages.return_value = [self.existing_issue(config, proposal)]
+        result = publish_proposal(api, config, 7, proposal)
+        self.assertEqual(result["number"], 8)
+        self.assertEqual(result["revision"], proposal["revision"])
+        api.create_issue.assert_not_called()
+
+    def test_closed_proposal_is_not_recreated(self):
+        api, config, proposal, _ = self.fixture()
+        issue = self.existing_issue(config, proposal)
+        issue["state"] = "closed"
+        api.pages.return_value = [issue]
+        with self.assertRaises(ValueError):
+            publish_proposal(api, config, 7, proposal)
+        api.create_issue.assert_not_called()
+
+    def test_duplicate_matches_stop_without_creating_another(self):
+        api, config, proposal, _ = self.fixture()
+        issue = self.existing_issue(config, proposal)
+        api.pages.return_value = [issue, {**issue, "number": 9}]
+        with self.assertRaises(ValueError):
+            publish_proposal(api, config, 7, proposal)
+        api.create_issue.assert_not_called()
+
+    def test_invalid_listing_stops_without_publication(self):
+        for listing in (None, {}, [None]):
+            api, config, proposal, _ = self.fixture()
+            api.pages.return_value = listing
+            with self.subTest(listing=listing), self.assertRaises(ValueError):
+                publish_proposal(api, config, 7, proposal)
+            api.create_issue.assert_not_called()
 
     def test_preview_and_unmonitored_targets_stop_before_network(self):
         for case in ("preview", "unmonitored"):
