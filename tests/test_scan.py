@@ -1,4 +1,4 @@
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 from pathlib import Path
@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from config import ConfigError
 from scan import main, scan
+from state import StateError
 
 
 class ScanTests(unittest.TestCase):
@@ -90,3 +91,52 @@ class ScanTests(unittest.TestCase):
             recurred = scan(self.fixture(), self.api(), previous=recovered)
         self.assertEqual(recovered["new_incidents"], [])
         self.assertEqual(recurred["new_incidents"], recurred["checks"])
+
+    def test_preview_uses_saved_state_without_updating_it(self):
+        previous = {"schema_version": 1, "checks": []}
+        report = {"status": "pass", "checks": []}
+        with (
+            patch("scan.GitHub") as client,
+            patch("scan.load_state", return_value=previous) as loader,
+            patch("scan.scan", return_value=report) as scanner,
+            redirect_stdout(io.StringIO()),
+        ):
+            result = main([
+                "scan", "--config", "config.example.json",
+                "--state-issue", "7",
+            ])
+        self.assertEqual(result, 0)
+        loader.assert_called_once_with(
+            client.return_value, self.fixture(), 7
+        )
+        scanner.assert_called_once_with(
+            self.fixture(), client.return_value, previous=previous
+        )
+        client.return_value.update_issue_body.assert_not_called()
+
+    def test_unreadable_state_stops_before_application_checks(self):
+        with (
+            patch("scan.GitHub") as client,
+            patch("scan.load_state", side_effect=StateError("Unavailable")),
+            patch("scan.scan") as scanner,
+            redirect_stderr(io.StringIO()),
+        ):
+            result = main([
+                "scan", "--config", "config.example.json",
+                "--state-issue", "7",
+            ])
+        self.assertEqual(result, 2)
+        scanner.assert_not_called()
+        client.return_value.update_issue_body.assert_not_called()
+
+    def test_scan_without_state_does_not_load_or_update_state(self):
+        with (
+            patch("scan.GitHub") as client,
+            patch("scan.load_state") as loader,
+            patch("scan.scan", return_value={"status": "pass"}),
+            redirect_stdout(io.StringIO()),
+        ):
+            result = main(["scan", "--config", "config.example.json"])
+        self.assertEqual(result, 0)
+        loader.assert_not_called()
+        client.return_value.update_issue_body.assert_not_called()
