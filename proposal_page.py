@@ -41,3 +41,25 @@ def render_proposal(proposal):
     if len(body.encode("utf-8")) > MAX_ISSUE_BODY_BYTES:
         raise ValueError("Rendered proposal exceeds issue size limit")
     return body
+
+
+def parse_proposal(body):
+    if (
+        not isinstance(body, str)
+        or len(body.encode("utf-8")) > MAX_ISSUE_BODY_BYTES
+    ):
+        raise ValueError("Invalid proposal page")
+
+    try:
+        record = body.rsplit("\n\n### Proposal record\n\n", 1)[1]
+        lines = record.splitlines()
+        opening = re.fullmatch(r"(`{3,})json", lines[0])
+        if not opening or lines[-1] != opening[1]:
+            raise ValueError("Invalid proposal record block")
+        proposal = json.loads("\n".join(lines[1:-1]))
+    except (IndexError, ValueError, RecursionError):
+        raise ValueError("Invalid proposal page") from None
+
+    if render_proposal(proposal) != body:
+        raise ValueError("Proposal page differs from its reviewed record")
+    return proposal
