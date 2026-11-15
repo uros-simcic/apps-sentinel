@@ -7,6 +7,7 @@ import sys
 from checks import check_workflow
 from config import ConfigError, load, validate
 from github_client import APIError, GitHub
+from incidents import incident_key
 from repo_json import check_repo_json
 
 
@@ -35,13 +36,16 @@ def scan(config, api):
                 else check_repo_json
             )
             status, detail = handler(api, check, observed)
-            results.append({
+            result = {
                 "app": app["id"],
                 "repo": check["repo"],
                 "check": check["id"],
                 "status": status,
                 "detail": detail,
-            })
+            }
+            if status in ("fail", "unknown"):
+                result["incident_id"] = incident_key(result)
+            results.append(result)
 
     statuses = {result["status"] for result in results}
     overall = (
