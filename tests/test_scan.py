@@ -73,3 +73,20 @@ class ScanTests(unittest.TestCase):
         with self.assertRaises(ConfigError):
             scan(config, api)
         api.get.assert_not_called()
+
+    def test_scan_distinguishes_new_and_continuing_problems(self):
+        with patch("scan.check_workflow", return_value=("fail", "Stale")):
+            first = scan(self.fixture(), self.api())
+            repeated = scan(self.fixture(), self.api(), previous=first)
+        self.assertEqual(first["new_incidents"], first["checks"])
+        self.assertEqual(repeated["new_incidents"], [])
+
+    def test_scan_recovery_and_recurrence(self):
+        with patch("scan.check_workflow", return_value=("fail", "Stale")):
+            failed = scan(self.fixture(), self.api())
+        with patch("scan.check_workflow", return_value=("pass", "OK")):
+            recovered = scan(self.fixture(), self.api(), previous=failed)
+        with patch("scan.check_workflow", return_value=("fail", "Stale")):
+            recurred = scan(self.fixture(), self.api(), previous=recovered)
+        self.assertEqual(recovered["new_incidents"], [])
+        self.assertEqual(recurred["new_incidents"], recurred["checks"])
