@@ -7,6 +7,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 API = "https://api.github.com"
 MAX_RESPONSE_BYTES = 1048576
 MAX_PAGES = 20
+MAX_ISSUE_BODY_BYTES = 60000
 
 
 class APIError(RuntimeError):
@@ -30,6 +31,9 @@ class GitHub:
         self.opener = build_opener(NoRedirect())
 
     def _get(self, path):
+        return self._request(path)
+
+    def _request(self, path, body=None):
         if (
             not isinstance(path, str)
             or not path.startswith("/")
@@ -40,12 +44,16 @@ class GitHub:
         ):
             raise APIError("Invalid GitHub API path")
 
-        request = Request(API + path, headers={
+        data = (
+            json.dumps({"body": body}).encode("utf-8")
+            if body is not None else None
+        )
+        request = Request(API + path, data=data, headers={
             "Accept": "application/vnd.github+json",
             "Authorization": "Bearer " + self.token,
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "Apps-Sentinel",
-        }, method="GET")
+        }, method="PATCH" if body is not None else "GET")
 
         try:
             with self.opener.open(request, timeout=15) as response:
@@ -67,6 +75,20 @@ class GitHub:
 
     def get(self, path):
         return self._get(path)[0]
+
+    def update_issue_body(self, path, body):
+        if not isinstance(path, str) or not re.fullmatch(
+            r"/repos/[A-Za-z0-9-]+/[A-Za-z0-9_-][A-Za-z0-9_.-]*"
+            r"/issues/[1-9][0-9]*",
+            path,
+        ):
+            raise APIError("Invalid GitHub issue path")
+        if (
+            not isinstance(body, str)
+            or len(body.encode("utf-8")) > MAX_ISSUE_BODY_BYTES
+        ):
+            raise APIError("Invalid GitHub issue body")
+        return self._request(path, body)[0]
 
     def pages(self, path, collection=None):
         items = []
