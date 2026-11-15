@@ -75,3 +75,54 @@ class GitHubClientTests(unittest.TestCase):
         with self.assertRaises(APIError):
             self.api.pages("/items")
         self.assertEqual(self.opener.open.call_count, 20)
+
+    def test_issue_update_changes_only_body(self):
+        self.opener.open.return_value = response({"number": 7})
+        result = self.api.update_issue_body(
+            "/repos/example-owner/example-run/issues/7",
+            '{"checks": []}',
+        )
+        request = self.opener.open.call_args.args[0]
+        self.assertEqual(result, {"number": 7})
+        self.assertEqual(request.get_method(), "PATCH")
+        self.assertEqual(
+            request.full_url,
+            "https://api.github.com/repos/"
+            "example-owner/example-run/issues/7",
+        )
+        self.assertEqual(
+            json.loads(request.data), {"body": '{"checks": []}'}
+        )
+        self.assertEqual(self.opener.open.call_args.kwargs["timeout"], 15)
+
+    def test_issue_update_rejects_other_destinations(self):
+        for path in (
+            None,
+            "/user",
+            "//other.example/issues/1",
+            "/repos/owner/../issues/1",
+            "/repos/owner/repo/issues/0",
+        ):
+            with self.subTest(path=path), self.assertRaises(APIError):
+                self.api.update_issue_body(path, "{}")
+        self.opener.open.assert_not_called()
+
+    def test_issue_update_rejects_invalid_or_oversized_body(self):
+        for body in (None, {}, "é" * 30001):
+            with self.subTest(body_type=type(body).__name__):
+                with self.assertRaises(APIError):
+                    self.api.update_issue_body(
+                        "/repos/owner/repo/issues/1", body
+                    )
+        self.opener.open.assert_not_called()
+
+    def test_issue_update_reports_permission_failure(self):
+        self.opener.open.side_effect = HTTPError(
+            "https://api.github.com/repos/owner/repo/issues/1",
+            403, "Forbidden", {}, None,
+        )
+        with self.assertRaises(APIError) as caught:
+            self.api.update_issue_body(
+                "/repos/owner/repo/issues/1", "{}"
+            )
+        self.assertEqual(caught.exception.status, 403)
