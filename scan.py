@@ -7,6 +7,7 @@ import sys
 from checks import check_workflow
 from config import ConfigError, load, validate
 from github_client import APIError, GitHub
+from repo_json import check_repo_json
 
 
 def scan(config, api):
@@ -29,7 +30,11 @@ def scan(config, api):
     results = []
     for app in config["apps"]:
         for check in app["checks"]:
-            status, detail = check_workflow(api, check, observed)
+            handler = (
+                check_workflow if check["kind"] == "workflow"
+                else check_repo_json
+            )
+            status, detail = handler(api, check, observed)
             results.append({
                 "app": app["id"],
                 "repo": check["repo"],
