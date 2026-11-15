@@ -35,16 +35,28 @@ class ScanTests(unittest.TestCase):
             report = scan(self.fixture(), self.api())
         self.assertEqual(report["status"], "pass")
         self.assertEqual(report["checks"][0]["app"], "example-app")
+        self.assertNotIn("incident_id", report["checks"][0])
 
     def test_missing_evidence_is_not_healthy(self):
         with patch("scan.check_workflow", return_value=("unknown", "No access")):
             report = scan(self.fixture(), self.api())
         self.assertEqual(report["status"], "unknown")
+        self.assertRegex(report["checks"][0]["incident_id"], r"^[0-9a-f]{64}$")
 
     def test_failed_check_is_reported(self):
         with patch("scan.check_workflow", return_value=("fail", "Stale")):
             report = scan(self.fixture(), self.api())
         self.assertEqual(report["status"], "fail")
+        self.assertRegex(report["checks"][0]["incident_id"], r"^[0-9a-f]{64}$")
+
+    def test_repeated_failure_keeps_same_incident(self):
+        with patch("scan.check_workflow", return_value=("fail", "Stale")):
+            first = scan(self.fixture(), self.api())
+            second = scan(self.fixture(), self.api())
+        self.assertEqual(
+            first["checks"][0]["incident_id"],
+            second["checks"][0]["incident_id"],
+        )
 
     def test_wrong_owner_blocks_checks(self):
         api = self.api()
