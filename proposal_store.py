@@ -1,0 +1,59 @@
+from urllib.parse import quote
+
+from config import validate
+from proposal_page import render_proposal
+from state import load_state
+
+
+def publish_proposal(api, config, state_issue, proposal):
+    validate(config)
+    if config["mode"] != "active":
+        raise ValueError("Proposal publishing requires active mode")
+
+    body = render_proposal(proposal)
+    targets = {
+        repo.casefold()
+        for app in config["apps"]
+        for repo in [app["repo"], *[c["repo"] for c in app["checks"]]]
+    }
+    if proposal["repo"].casefold() not in targets:
+        raise ValueError("Proposal target is not monitored")
+
+    load_state(api, config, state_issue)
+    target = "/repos/" + proposal["repo"]
+    repo = api.get(target)
+    branch = repo.get("default_branch") if isinstance(repo, dict) else None
+    if not isinstance(branch, str) or not branch:
+        raise ValueError("Missing target default branch")
+    head = api.get(target + "/commits/" + quote(branch, safe=""))
+    if not isinstance(head, dict) or head.get("sha") != proposal["base_sha"]:
+        raise ValueError("Proposal base commit is no longer current")
+
+    title = (
+        proposal["repo"] + ": " + " ".join(proposal["summary"].split())
+    )[:240]
+    created = api.create_issue(
+        "/repos/" + config["control_repo"] + "/issues", title, body
+    )
+    if not isinstance(created, dict):
+        raise ValueError("GitHub did not confirm proposal creation")
+
+    number = created.get("number")
+    actor = created.get("user")
+    url = (
+        f"https://github.com/{config['control_repo']}/issues/{number}"
+    )
+    if (
+        type(number) is not int or number <= 0
+        or not isinstance(actor, dict)
+        or type(actor.get("id")) is not int
+        or actor["id"] != config["owner_id"]
+        or created.get("state") != "open"
+        or "pull_request" in created
+        or created.get("title") != title
+        or created.get("body") != body
+        or not isinstance(created.get("html_url"), str)
+        or created["html_url"].casefold() != url.casefold()
+    ):
+        raise ValueError("GitHub did not confirm the intended proposal")
+    return {"number": number, "url": url, "revision": proposal["revision"]}
