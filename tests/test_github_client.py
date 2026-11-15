@@ -45,6 +45,59 @@ class GitHubClientTests(unittest.TestCase):
             self.api.get("/user")
         self.assertEqual(caught.exception.status, 403)
 
+    def test_issue_creation_sends_only_title_and_body(self):
+        self.opener.open.return_value = response({"number": 8})
+        result = self.api.create_issue(
+            "/repos/owner/repo/issues", "Fix missing input", "Proposal"
+        )
+        request = self.opener.open.call_args.args[0]
+        self.assertEqual(result, {"number": 8})
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(
+            request.full_url,
+            "https://api.github.com/repos/owner/repo/issues",
+        )
+        self.assertEqual(
+            json.loads(request.data),
+            {"title": "Fix missing input", "body": "Proposal"},
+        )
+        self.opener.open.assert_called_once()
+
+    def test_issue_creation_rejects_other_destinations(self):
+        for path in (
+            None, "/user", "//other.example/issues",
+            "/repos/owner/../issues", "/repos/owner/repo/issues/1",
+        ):
+            with self.subTest(path=path), self.assertRaises(APIError):
+                self.api.create_issue(path, "Fix", "Proposal")
+        self.opener.open.assert_not_called()
+
+    def test_issue_creation_rejects_invalid_content(self):
+        for title, body in (
+            ("", "Proposal"),
+            ("Fix\nanother title", "Proposal"),
+            ("x" * 241, "Proposal"),
+            ("Fix", None),
+            ("Fix", "é" * 30001),
+        ):
+            with self.subTest(title=title), self.assertRaises(APIError):
+                self.api.create_issue(
+                    "/repos/owner/repo/issues", title, body
+                )
+        self.opener.open.assert_not_called()
+
+    def test_issue_creation_does_not_retry_http_failure(self):
+        self.opener.open.side_effect = HTTPError(
+            "https://api.github.com/repos/owner/repo/issues",
+            403, "Forbidden", {}, None,
+        )
+        with self.assertRaises(APIError) as caught:
+            self.api.create_issue(
+                "/repos/owner/repo/issues", "Fix", "Proposal"
+            )
+        self.assertEqual(caught.exception.status, 403)
+        self.opener.open.assert_called_once()
+
     def test_oversized_and_invalid_json_fail(self):
         for raw in (b"invalid", b" " * (MAX_RESPONSE_BYTES + 1)):
             result = response({})
