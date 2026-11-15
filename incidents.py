@@ -15,3 +15,16 @@ def incident_key(result):
     values[0] = values[0].casefold()
     encoded = json.dumps(values, ensure_ascii=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def new_incidents(report, previous):
+    known = {
+        result["incident_id"]
+        for result in previous["checks"]
+        if result["status"] in ("fail", "unknown")
+    }
+    return [
+        result for result in report["checks"]
+        if result["status"] in ("fail", "unknown")
+        and result["incident_id"] not in known
+    ]
