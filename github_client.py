@@ -33,7 +33,7 @@ class GitHub:
     def _get(self, path):
         return self._request(path)
 
-    def _request(self, path, body=None):
+    def _request(self, path, body=None, title=None):
         if (
             not isinstance(path, str)
             or not path.startswith("/")
@@ -44,16 +44,23 @@ class GitHub:
         ):
             raise APIError("Invalid GitHub API path")
 
+        payload = {"body": body}
+        if title is not None:
+            payload["title"] = title
         data = (
-            json.dumps({"body": body}).encode("utf-8")
+            json.dumps(payload).encode("utf-8")
             if body is not None else None
+        )
+        method = (
+            "POST" if title is not None
+            else "PATCH" if body is not None else "GET"
         )
         request = Request(API + path, data=data, headers={
             "Accept": "application/vnd.github+json",
             "Authorization": "Bearer " + self.token,
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "Apps-Sentinel",
-        }, method="PATCH" if body is not None else "GET")
+        }, method=method)
 
         try:
             with self.opener.open(request, timeout=15) as response:
@@ -89,6 +96,26 @@ class GitHub:
         ):
             raise APIError("Invalid GitHub issue body")
         return self._request(path, body)[0]
+
+    def create_issue(self, path, title, body):
+        if not isinstance(path, str) or not re.fullmatch(
+            r"/repos/[A-Za-z0-9-]+/[A-Za-z0-9_-][A-Za-z0-9_.-]*/issues",
+            path,
+        ):
+            raise APIError("Invalid GitHub issue creation path")
+        if (
+            not isinstance(title, str)
+            or not title.strip()
+            or len(title) > 240
+            or any(ord(char) < 32 or ord(char) == 127 for char in title)
+        ):
+            raise APIError("Invalid GitHub issue title")
+        if (
+            not isinstance(body, str)
+            or len(body.encode("utf-8")) > MAX_ISSUE_BODY_BYTES
+        ):
+            raise APIError("Invalid GitHub issue body")
+        return self._request(path, body, title)[0]
 
     def pages(self, path, collection=None):
         items = []
