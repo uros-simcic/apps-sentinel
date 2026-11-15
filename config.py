@@ -108,25 +108,55 @@ def validate(config):
 
         check_ids = set()
         for check in checks:
-            _fields(check, {
-                "id", "kind", "repo", "workflow", "max_age_hours",
-            })
+            if not isinstance(check, dict):
+                raise ConfigError("Invalid check")
+            kind = check.get("kind")
+            expected = {"id", "kind", "repo", "max_age_hours"}
+            if kind == "workflow":
+                expected.add("workflow")
+            elif kind == "repo_json":
+                expected.update({"path", "required_fields", "timestamp_field"})
+            else:
+                raise ConfigError("Unsupported check kind")
+            _fields(check, expected)
             name = check["id"]
             if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", name):
                 raise ConfigError("Invalid check ID")
             if name in check_ids:
                 raise ConfigError("Duplicate check ID")
             check_ids.add(name)
-            if check["kind"] != "workflow":
-                raise ConfigError("Unsupported check kind")
             validate_identity({**config, "control_repo": check["repo"]})
-            workflow = check["workflow"]
-            if not isinstance(workflow, str) or not re.fullmatch(
-                r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\.ya?ml", workflow
-            ):
-                raise ConfigError("Invalid workflow filename")
+            if kind == "workflow":
+                workflow = check["workflow"]
+                if not isinstance(workflow, str) or not re.fullmatch(
+                    r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\.ya?ml", workflow
+                ):
+                    raise ConfigError("Invalid workflow filename")
+            else:
+                _validate_json_check(check)
             age = check["max_age_hours"]
             if type(age) not in (int, float) or not 0 < age <= 8760:
                 raise ConfigError("Invalid workflow freshness limit")
 
     return config
+
+
+def _validate_json_check(check):
+    path = check["path"]
+    if (
+        not isinstance(path, str)
+        or not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_./-]*\.json", path)
+        or any(part in ("", ".", "..") for part in path.split("/"))
+    ):
+        raise ConfigError("Invalid repository JSON path")
+
+    fields = check["required_fields"]
+    if not isinstance(fields, list) or not 1 <= len(fields) <= 32:
+        raise ConfigError("Configure between one and 32 required fields")
+
+    pattern = r"[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*"
+    for field in [*fields, check["timestamp_field"]]:
+        if not isinstance(field, str) or not re.fullmatch(pattern, field):
+            raise ConfigError("Invalid JSON field path")
+    if len(set(fields)) != len(fields):
+        raise ConfigError("Duplicate required JSON field")
