@@ -32,9 +32,34 @@ def publish_proposal(api, config, state_issue, proposal):
     title = (
         proposal["repo"] + ": " + " ".join(proposal["summary"].split())
     )[:240]
-    created = api.create_issue(
-        "/repos/" + config["control_repo"] + "/issues", title, body
+    path = "/repos/" + config["control_repo"] + "/issues"
+    issues = api.pages(
+        path + "?state=all&per_page=100&creator="
+        + quote(config["owner_login"], safe="")
     )
+    if not isinstance(issues, list):
+        raise ValueError("Invalid proposal issue listing")
+
+    matches = []
+    for issue in issues:
+        if not isinstance(issue, dict):
+            raise ValueError("Malformed proposal issue evidence")
+        actor = issue.get("user")
+        if (
+            "pull_request" not in issue
+            and issue.get("body") == body
+            and isinstance(actor, dict)
+            and type(actor.get("id")) is int
+            and actor["id"] == config["owner_id"]
+        ):
+            matches.append(issue)
+
+    if len(matches) > 1:
+        raise ValueError("Multiple issues contain the same proposal")
+    if matches and matches[0].get("state") != "open":
+        raise ValueError("Matching proposal is already closed")
+
+    created = matches[0] if matches else api.create_issue(path, title, body)
     if not isinstance(created, dict):
         raise ValueError("GitHub did not confirm proposal creation")
 
