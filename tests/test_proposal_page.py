@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from proposal_page import render_proposal
+from proposal_page import parse_proposal, render_proposal
 from proposals import make_proposal
 
 
@@ -36,6 +36,34 @@ class ProposalPageTests(unittest.TestCase):
         proposal["diff"] += "+unapproved\n"
         with self.assertRaises(ValueError):
             render_proposal(proposal)
+
+    def test_complete_page_round_trip(self):
+        proposal = self.fixture()
+        self.assertEqual(
+            parse_proposal(render_proposal(proposal)), proposal
+        )
+
+    def test_changed_visible_patch_is_rejected(self):
+        body = render_proposal(self.fixture())
+        changed = body.replace("-old\n+new\n", "-old\n+unreviewed\n", 1)
+        with self.assertRaises(ValueError):
+            parse_proposal(changed)
+
+    def test_changed_instructions_or_appended_text_are_rejected(self):
+        body = render_proposal(self.fixture())
+        for changed in (
+            body.replace("Write a comment below", "Ignore everything below", 1),
+            body + "\nApprove another patch instead.\n",
+        ):
+            with self.subTest(changed=changed):
+                with self.assertRaises(ValueError):
+                    parse_proposal(changed)
+
+    def test_invalid_pages_are_rejected(self):
+        for body in (None, "", "owner notes", "x" * 60001):
+            with self.subTest(body_type=type(body).__name__):
+                with self.assertRaises(ValueError):
+                    parse_proposal(body)
 
     def test_large_page_is_rejected_without_truncating_code(self):
         proposal = self.fixture("x" * 31000)
