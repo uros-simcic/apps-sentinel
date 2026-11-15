@@ -7,11 +7,11 @@ import sys
 from checks import check_workflow
 from config import ConfigError, load, validate
 from github_client import APIError, GitHub
-from incidents import incident_key
+from incidents import incident_key, new_incidents
 from repo_json import check_repo_json
 
 
-def scan(config, api):
+def scan(config, api, previous=None):
     validate(config)
     if config["mode"] != "preview":
         raise ConfigError("Only preview scans are currently supported")
@@ -53,12 +53,16 @@ def scan(config, api):
         else "unknown" if "unknown" in statuses
         else "pass"
     )
-    return {
+    report = {
         "mode": "preview",
         "observed_at": observed.isoformat(),
         "status": overall,
         "checks": results,
     }
+    report["new_incidents"] = new_incidents(
+        report, previous if previous is not None else {"checks": []}
+    )
+    return report
 
 
 def main(argv=None):
