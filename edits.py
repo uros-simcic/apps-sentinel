@@ -8,7 +8,7 @@ MAX_EDIT_FILES = 5
 MAX_CHANGED_LINES = 400
 
 
-def build_edit(path, source, old_text, new_text, allowed_paths):
+def validate_edit_path(path, allowed_paths):
     if (
         not isinstance(path, str)
         or not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_./-]*", path)
@@ -20,6 +20,10 @@ def build_edit(path, source, old_text, new_text, allowed_paths):
         or path not in allowed_paths
     ):
         raise ValueError("Edit path is not permitted")
+
+
+def build_edit(path, source, old_text, new_text, allowed_paths):
+    validate_edit_path(path, allowed_paths)
 
     for value in (source, old_text, new_text):
         if (
