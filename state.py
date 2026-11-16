@@ -52,11 +52,16 @@ def _issue(api, config, number):
 
 
 def _validate(state):
+    if not isinstance(state, dict):
+        raise StateError("Invalid state document")
+    version = state.get("schema_version")
+    expected = {"schema_version", "checks"}
+    if version == 2:
+        expected.add("executions")
     if (
-        not isinstance(state, dict)
-        or set(state) != {"schema_version", "checks"}
-        or type(state["schema_version"]) is not int
-        or state["schema_version"] != 1
+        type(version) is not int
+        or version not in (1, 2)
+        or set(state) != expected
         or not isinstance(state["checks"], list)
     ):
         raise StateError("Invalid state document")
@@ -73,7 +78,45 @@ def _validate(state):
         ):
             raise StateError("Invalid or duplicate state incident")
         seen.add(row["incident_id"])
+    if version == 2:
+        _validate_executions(state["executions"])
     return state
+
+
+def _validate_executions(receipts):
+    if not isinstance(receipts, list):
+        raise StateError("Invalid execution receipts")
+    seen = set()
+    for row in receipts:
+        if (
+            not isinstance(row, dict)
+            or set(row) != {
+                "proposal_issue", "revision", "comment_id", "status"
+            }
+            or type(row["proposal_issue"]) is not int
+            or row["proposal_issue"] <= 0
+            or type(row["comment_id"]) is not int
+            or row["comment_id"] <= 0
+            or row["comment_id"] in seen
+            or not isinstance(row["revision"], str)
+            or not re.fullmatch(r"[0-9a-f]{64}", row["revision"])
+            or row["status"] not in (
+                "claimed", "succeeded", "failed", "uncertain"
+            )
+        ):
+            raise StateError("Invalid or duplicate execution receipt")
+        seen.add(row["comment_id"])
+
+
+def upgrade_state(state):
+    _validate(state)
+    return {
+        "schema_version": 2,
+        "checks": [dict(row) for row in state["checks"]],
+        "executions": [
+            dict(row) for row in state.get("executions", [])
+        ],
+    }
 
 
 def _object(pairs):
