@@ -1,7 +1,8 @@
+import re
 from urllib.parse import quote
 
 from config import validate
-from proposal_page import render_proposal
+from proposal_page import parse_proposal, render_proposal
 from state import load_state
 
 
@@ -82,3 +83,44 @@ def publish_proposal(api, config, state_issue, proposal):
     ):
         raise ValueError("GitHub did not confirm the intended proposal")
     return {"number": number, "url": url, "revision": proposal["revision"]}
+
+
+def load_proposal(api, config, state_issue, number, revision):
+    validate(config)
+    if (
+        type(number) is not int or number <= 0
+        or not isinstance(revision, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", revision)
+    ):
+        raise ValueError("Invalid proposal reference")
+
+    load_state(api, config, state_issue)
+    issue = api.get(
+        f"/repos/{config['control_repo']}/issues/{number}"
+    )
+    if not isinstance(issue, dict):
+        raise ValueError("Invalid proposal issue")
+    actor = issue.get("user")
+    if (
+        type(issue.get("number")) is not int
+        or issue["number"] != number
+        or issue.get("state") != "open"
+        or "pull_request" in issue
+        or not isinstance(actor, dict)
+        or type(actor.get("id")) is not int
+        or actor["id"] != config["owner_id"]
+    ):
+        raise ValueError("Invalid owner-controlled proposal issue")
+
+    proposal = parse_proposal(issue.get("body"))
+    if proposal["revision"] != revision:
+        raise ValueError("Proposal does not match the recorded revision")
+
+    targets = {
+        repo.casefold()
+        for app in config["apps"]
+        for repo in [app["repo"], *[c["repo"] for c in app["checks"]]]
+    }
+    if proposal["repo"].casefold() not in targets:
+        raise ValueError("Proposal target is not monitored")
+    return proposal
