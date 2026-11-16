@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import Mock
 
-from state import StateError, load_state, save_state
+from state import StateError, load_state, save_state, upgrade_state
 
 
 class StateTests(unittest.TestCase):
@@ -92,3 +92,48 @@ class StateTests(unittest.TestCase):
         api.update_issue_body.return_value = {"number": 7, "body": "different"}
         with self.assertRaises(StateError):
             save_state(api, config, 7, state)
+
+    def receipt(self):
+        return {
+            "proposal_issue": 8,
+            "revision": "b" * 64,
+            "comment_id": 1,
+            "status": "claimed",
+        }
+
+    def test_upgrade_preserves_checks_without_mutating_original(self):
+        original = {
+            "schema_version": 1,
+            "checks": [{"status": "fail", "incident_id": "a" * 64}],
+        }
+        upgraded = upgrade_state(original)
+        self.assertEqual(upgraded["checks"], original["checks"])
+        self.assertEqual(upgraded["executions"], [])
+        upgraded["checks"][0]["status"] = "unknown"
+        self.assertEqual(original["checks"][0]["status"], "fail")
+        self.assertEqual(original["schema_version"], 1)
+
+    def test_version_two_receipts_round_trip(self):
+        api, config, _, _, issue, state = self.fixture()
+        state = upgrade_state(state)
+        state["executions"].append(self.receipt())
+        save_state(api, config, 7, state)
+        issue["body"] = api.update_issue_body.call_args.args[1]
+        self.assertEqual(load_state(api, config, 7), state)
+
+    def test_invalid_receipts_stop_before_network(self):
+        for rows in (
+            [{**self.receipt(), "comment_id": True}],
+            [{**self.receipt(), "proposal_issue": True}],
+            [{**self.receipt(), "revision": "invalid"}],
+            [{**self.receipt(), "status": "retry"}],
+            [self.receipt(), self.receipt()],
+        ):
+            api, config, _, _, _, _ = self.fixture()
+            state = {
+                "schema_version": 2, "checks": [], "executions": rows,
+            }
+            with self.subTest(rows=rows), self.assertRaises(StateError):
+                save_state(api, config, 7, state)
+            api.get.assert_not_called()
+            api.update_issue_body.assert_not_called()
