@@ -3,7 +3,9 @@ import hashlib
 import re
 
 from config import validate
-from edits import MAX_FILE_BYTES, validate_edit_path
+from edits import MAX_FILE_BYTES, build_edits, validate_edit_path
+from proposal_page import render_proposal
+from proposals import make_proposal
 
 MAX_SOURCE_FILES = 8
 MAX_SOURCE_BYTES = 120 * 1024
@@ -115,3 +117,29 @@ def read_sources(api, config, repo, base_sha, paths, allowed_paths):
         "sources": sources,
         "fingerprints": fingerprints,
     }
+
+
+def prepare_repair(
+    api, config, repo, base_sha, paths, allowed_paths, answer
+):
+    if (
+        not isinstance(answer, dict)
+        or set(answer) != {"summary", "explanation", "edits"}
+    ):
+        raise ValueError("Invalid repair answer")
+
+    bundle = read_sources(
+        api, config, repo, base_sha, paths, allowed_paths
+    )
+    repair = build_edits(
+        answer["edits"], bundle["sources"], allowed_paths
+    )
+    proposal = make_proposal({
+        "repo": bundle["repo"],
+        "base_sha": bundle["base_sha"],
+        "summary": answer["summary"],
+        "explanation": answer["explanation"],
+        "diff": repair["diff"],
+    })
+    render_proposal(proposal)
+    return proposal
