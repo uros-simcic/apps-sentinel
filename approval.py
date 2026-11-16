@@ -2,7 +2,9 @@
 
 from datetime import datetime, timezone
 from typing import Literal
+from urllib.parse import quote
 
+from config import validate
 from proposal_store import load_proposal
 
 ReplyKind = Literal["approve", "reject", "feedback"]
@@ -84,8 +86,40 @@ def read_replies(api, config, state_issue, number, revision):
             "kind": "feedback" if edited else kind,
             "body": comment["body"],
             "created_at": created.astimezone(timezone.utc).isoformat(),
+            "updated_at": updated.astimezone(timezone.utc).isoformat(),
             "edited": edited,
         })
 
-    replies.sort(key=lambda reply: (reply["created_at"], reply["id"]))
+    replies.sort(key=lambda reply: (reply["updated_at"], reply["id"]))
     return {"proposal": proposal, "replies": replies}
+
+
+def check_approval(api, config, state_issue, number, revision):
+    validate(config)
+    if config["mode"] != "active":
+        raise ValueError("Execution approval requires active mode")
+
+    review = read_replies(api, config, state_issue, number, revision)
+    replies = review["replies"]
+    if not replies:
+        raise ValueError("Current owner approval required")
+    latest = max(
+        replies, key=lambda reply: (reply["updated_at"], reply["id"])
+    )
+    if latest["kind"] != "approve" or latest["edited"]:
+        raise ValueError("Current owner approval required")
+
+    proposal = review["proposal"]
+    target = "/repos/" + proposal["repo"]
+    repo = api.get(target)
+    branch = repo.get("default_branch") if isinstance(repo, dict) else None
+    if not isinstance(branch, str) or not branch:
+        raise ValueError("Missing target default branch")
+    head = api.get(target + "/commits/" + quote(branch, safe=""))
+    if not isinstance(head, dict) or head.get("sha") != proposal["base_sha"]:
+        raise ValueError("Approved proposal base is no longer current")
+
+    refreshed = read_replies(api, config, state_issue, number, revision)
+    if refreshed != review:
+        raise ValueError("Proposal or owner replies changed during review")
+    return {"proposal": proposal, "comment_id": latest["id"]}
