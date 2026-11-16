@@ -1,7 +1,7 @@
 import hashlib
 import unittest
 
-from edits import build_edit
+from edits import build_edit, build_edits
 
 
 class EditTests(unittest.TestCase):
@@ -58,3 +58,71 @@ class EditTests(unittest.TestCase):
         source = "a" * 21000 + "\n"
         with self.assertRaises(ValueError):
             self.build(source, source, "b" * 21000 + "\n")
+
+
+class BatchEditTests(unittest.TestCase):
+    def edit(self, path, source, replacement):
+        return {
+            "path": path,
+            "base_sha256": hashlib.sha256(source.encode()).hexdigest(),
+            "old_text": source,
+            "new_text": replacement,
+        }
+
+    def test_combines_exact_candidates_without_changing_sources(self):
+        sources = {"a.py": "old_a\n", "b.py": "old_b\n"}
+        result = build_edits([
+            self.edit("a.py", sources["a.py"], "new_a\n"),
+            self.edit("b.py", sources["b.py"], "new_b\n"),
+        ], sources, set(sources))
+        self.assertEqual(
+            [edit["candidate"] for edit in result["edits"]],
+            ["new_a\n", "new_b\n"],
+        )
+        self.assertEqual(
+            result["diff"],
+            "".join(edit["diff"] for edit in result["edits"]),
+        )
+        self.assertEqual(sources, {"a.py": "old_a\n", "b.py": "old_b\n"})
+
+    def test_stale_source_fingerprint_is_rejected(self):
+        edit = self.edit("a.py", "old\n", "new\n")
+        edit["base_sha256"] = "0" * 64
+        with self.assertRaises(ValueError):
+            build_edits([edit], {"a.py": "old\n"}, {"a.py"})
+
+    def test_duplicate_paths_and_extra_fields_are_rejected(self):
+        edit = self.edit("a.py", "old\n", "new\n")
+        for records in (
+            [edit, edit],
+            [{**edit, "command": "unapproved command"}],
+        ):
+            with self.subTest(records=records), self.assertRaises(ValueError):
+                build_edits(records, {"a.py": "old\n"}, {"a.py"})
+
+    def test_file_count_limit_is_enforced(self):
+        sources = {f"file{i}.py": "old\n" for i in range(6)}
+        records = [
+            self.edit(path, source, "new\n")
+            for path, source in sources.items()
+        ]
+        with self.assertRaises(ValueError):
+            build_edits(records, sources, set(sources))
+
+    def test_changed_line_limit_is_enforced(self):
+        source = "old\n" * 201
+        with self.assertRaises(ValueError):
+            build_edits(
+                [self.edit("a.py", source, "new\n" * 201)],
+                {"a.py": source}, {"a.py"},
+            )
+
+    def test_combined_diff_limit_is_enforced(self):
+        source = "a" * 11000 + "\n"
+        sources = {"a.py": source, "b.py": source}
+        records = [
+            self.edit(path, source, "b" * 11000 + "\n")
+            for path in sources
+        ]
+        with self.assertRaises(ValueError):
+            build_edits(records, sources, set(sources))
