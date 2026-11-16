@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import Mock
 
 from proposal_page import parse_proposal, render_proposal
-from proposal_store import publish_proposal
+from proposal_store import load_proposal, publish_proposal
 from proposals import make_proposal
 
 
@@ -58,6 +58,57 @@ class ProposalStoreTests(unittest.TestCase):
         self.assertEqual(result["number"], 8)
         self.assertEqual(result["revision"], proposal["revision"])
         api.create_issue.assert_called_once()
+
+    def review_fixture(self):
+        api, config, proposal, responses = self.fixture()
+        responses[
+            "/repos/" + config["control_repo"] + "/issues/8"
+        ] = self.existing_issue(config, proposal)
+        return api, config, proposal, responses
+
+    def test_loads_only_the_pinned_proposal_revision(self):
+        api, config, proposal, _ = self.review_fixture()
+        self.assertEqual(
+            load_proposal(api, config, 7, 8, proposal["revision"]),
+            proposal,
+        )
+        api.create_issue.assert_not_called()
+        api.update_issue_body.assert_not_called()
+
+    def test_different_revision_is_rejected(self):
+        api, config, _, _ = self.review_fixture()
+        with self.assertRaises(ValueError):
+            load_proposal(api, config, 7, 8, "0" * 64)
+
+    def test_changed_or_unowned_proposal_issue_is_rejected(self):
+        for case in ("author", "closed", "pull_request", "patch"):
+            api, config, proposal, responses = self.review_fixture()
+            issue = responses[
+                "/repos/" + config["control_repo"] + "/issues/8"
+            ]
+            if case == "author":
+                issue["user"] = {"id": 99999}
+            elif case == "closed":
+                issue["state"] = "closed"
+            elif case == "pull_request":
+                issue["pull_request"] = {}
+            else:
+                issue["body"] = issue["body"].replace(
+                    "-old\n+new\n", "-old\n+unreviewed\n", 1
+                )
+            with self.subTest(case=case), self.assertRaises(ValueError):
+                load_proposal(api, config, 7, 8, proposal["revision"])
+            api.create_issue.assert_not_called()
+            api.update_issue_body.assert_not_called()
+
+    def test_invalid_reference_stops_before_network(self):
+        for number, revision in (
+            (True, "a" * 64), (0, "a" * 64), (8, "unknown"),
+        ):
+            api, config, _, _ = self.fixture()
+            with self.subTest(number=number), self.assertRaises(ValueError):
+                load_proposal(api, config, 7, number, revision)
+            api.get.assert_not_called()
 
     def existing_issue(self, config, proposal):
         return {
