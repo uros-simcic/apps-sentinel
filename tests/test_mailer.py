@@ -1,8 +1,9 @@
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import Mock, patch
 
-from mailer import build_proposal_email
+from mailer import build_proposal_email, prepare_proposal_email
 from proposals import make_proposal
 
 
@@ -82,3 +83,42 @@ class MailerTests(unittest.TestCase):
                 config, proposal, url,
                 "sender@example.com", "owner@example.com",
             )
+
+    def test_stored_proposal_has_matching_link_and_stable_identifier(self):
+        config, proposal, url = self.fixture()
+        api = Mock()
+
+        def prepare(record):
+            with patch("mailer.load_proposal", return_value=record) as load:
+                message = prepare_proposal_email(
+                    api, config, 1, 17, record["revision"],
+                    "sender@example.com", "owner@example.com",
+                )
+            load.assert_called_once_with(
+                api, config, 1, 17, record["revision"]
+            )
+            return message
+
+        first = prepare(proposal)
+        second = prepare(proposal)
+        self.assertIn(url, first.get_content())
+        self.assertIn(proposal["diff"], first.get_content())
+        self.assertEqual(first["Message-ID"], second["Message-ID"])
+
+        _, revised, _ = self.fixture(explanation="A revised solution.")
+        third = prepare(revised)
+        self.assertNotEqual(first["Message-ID"], third["Message-ID"])
+        self.assertEqual(api.method_calls, [])
+
+    def test_failed_proposal_verification_stops_email_construction(self):
+        config, proposal, _ = self.fixture()
+        with (
+            patch("mailer.load_proposal", side_effect=ValueError),
+            patch("mailer.build_proposal_email") as build,
+        ):
+            with self.assertRaises(ValueError):
+                prepare_proposal_email(
+                    Mock(), config, 1, 17, proposal["revision"],
+                    "sender@example.com", "owner@example.com",
+                )
+        build.assert_not_called()
