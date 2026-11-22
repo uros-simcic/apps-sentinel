@@ -2,10 +2,12 @@ from email.headerregistry import Address
 from email.errors import HeaderParseError
 from email.message import EmailMessage
 from email.policy import SMTP
+import hashlib
 import re
 
 from config import validate
 from proposal_page import render_proposal
+from proposal_store import load_proposal
 
 
 def _address(value):
@@ -73,4 +75,23 @@ def build_proposal_email(
         "Approval covers only the displayed proposal revision.\n"
         "Replies to this email are not read.\n"
     )
+    return message
+
+
+def prepare_proposal_email(
+    api, config, state_issue, number, revision, sender, recipient
+):
+    proposal = load_proposal(
+        api, config, state_issue, number, revision
+    )
+    url = (
+        f"https://github.com/{config['control_repo']}/issues/{number}"
+    )
+    message = build_proposal_email(
+        config, proposal, url, sender, recipient
+    )
+    identifier = hashlib.sha256(
+        (url + "\n" + proposal["revision"]).encode("utf-8")
+    ).hexdigest()
+    message["Message-ID"] = f"<{identifier}@apps-sentinel.invalid>"
     return message
