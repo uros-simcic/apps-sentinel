@@ -14,6 +14,15 @@ def _block(text, language):
     return f"{fence}{language}\n{text}\n{fence}"
 
 
+def format_test_scope(scope):
+    return (
+        "Operation: Run approved tests only\n"
+        f"Base branch: {scope['base_branch']}\n"
+        f"Test profile: {scope['test_profile']}\n"
+        f"Test profile SHA-256: {scope['test_profile_sha256']}"
+    )
+
+
 def render_proposal(proposal):
     validate_proposal(proposal)
     parts = [
@@ -38,13 +47,8 @@ def render_proposal(proposal):
         ),
     ]
     if "scope" in proposal:
-        scope = proposal["scope"]
         parts.insert(-1, "### Approval scope\n\n" + _block(
-            "Operation: Run approved tests only\n"
-            f"Base branch: {scope['base_branch']}\n"
-            f"Test profile: {scope['test_profile']}\n"
-            f"Test profile SHA-256: {scope['test_profile_sha256']}",
-            "text",
+            format_test_scope(proposal["scope"]), "text",
         ))
     body = "\n\n".join(parts) + "\n"
     if len(body.encode("utf-8")) > MAX_ISSUE_BODY_BYTES:

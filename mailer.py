@@ -6,7 +6,7 @@ import hashlib
 import re
 
 from config import validate
-from proposal_page import render_proposal
+from proposal_page import format_test_scope, render_proposal
 from proposal_store import load_proposal
 
 
@@ -62,6 +62,11 @@ def build_proposal_email(
     message["Subject"] = (
         f"[{proposal['repo']}] {summary} — proposed solution"
     )
+    scope = proposal.get("scope")
+    scope_text = (
+        format_test_scope(scope) if scope is not None
+        else "This proposal is for review. A new scoped proposal is required to run tests."
+    )
     message.set_content(
         f"{proposal['summary']}\n\n"
         f"{proposal['explanation']}\n\n"
@@ -69,6 +74,7 @@ def build_proposal_email(
         f"Proposal revision: {proposal['revision']}\n\n"
         "Validation: the proposed code has not been executed.\n\n"
         f"Proposed code:\n{proposal['diff']}\n"
+        f"Approval scope:\n{scope_text}\n\n"
         f"Review and respond:\n{issue_url}\n\n"
         "Open the link and write Approve, Reject, or feedback "
         "in the issue's comment box.\n"
