@@ -1,5 +1,6 @@
 import unittest
 
+from proposal_page import parse_proposal, render_proposal
 from proposals import make_proposal, validate_proposal
 
 
@@ -42,6 +43,29 @@ class ProposalTests(unittest.TestCase):
         proposal["diff"] += "+unapproved change\n"
         with self.assertRaises(ValueError):
             validate_proposal(proposal)
+
+    def test_scope_is_visible_and_bound_to_revision(self):
+        scope = {
+            "operation": "test_only",
+            "base_branch": "release/v1.2",
+            "test_profile": "weather-checks",
+            "test_profile_sha256": "b" * 64,
+        }
+        proposal = make_proposal({**self.fixture(), "scope": scope})
+        body = render_proposal(proposal)
+        self.assertIn("Operation: Run approved tests only", body)
+        self.assertIn("Test profile: weather-checks", body)
+        self.assertEqual(parse_proposal(body), proposal)
+        for field, value in (
+            ("base_branch", "main"),
+            ("test_profile", "other-checks"),
+            ("test_profile_sha256", "c" * 64),
+            ("operation", "publish"),
+        ):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_proposal({
+                    **proposal, "scope": {**scope, field: value},
+                })
 
     def test_invalid_or_oversized_records_are_rejected(self):
         for change in (
