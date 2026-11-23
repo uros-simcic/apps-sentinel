@@ -15,6 +15,12 @@ class ExecutionGateTests(unittest.TestCase):
             "repo": config["apps"][0]["repo"],
             "base_sha": "a" * 40,
             "revision": "b" * 64,
+            "scope": {
+                "operation": "test_only",
+                "base_branch": "main",
+                "test_profile": "weather-checks",
+                "test_profile_sha256": "c" * 64,
+            },
         }
         reply = {
             "id": 1, "kind": "approve", "body": "Approve",
