@@ -3,7 +3,9 @@ from pathlib import Path
 import unittest
 from unittest.mock import Mock
 
-from state import StateError, load_state, save_state, upgrade_state
+from state import (
+    StateError, load_state, save_state, upgrade_outbox, upgrade_state,
+)
 
 
 class StateTests(unittest.TestCase):
@@ -133,6 +135,54 @@ class StateTests(unittest.TestCase):
             state = {
                 "schema_version": 2, "checks": [], "executions": rows,
             }
+            with self.subTest(rows=rows), self.assertRaises(StateError):
+                save_state(api, config, 7, state)
+            api.get.assert_not_called()
+            api.update_issue_body.assert_not_called()
+
+    def outbox_entry(self):
+        return {
+            "proposal_issue": 8,
+            "revision": "b" * 64,
+            "status": "pending",
+            "attempts": 0,
+        }
+
+    def test_outbox_round_trip_preserves_existing_state(self):
+        api, config, _, _, issue, original = self.fixture()
+        state = upgrade_state(original)
+        state["executions"].append(self.receipt())
+        state = upgrade_outbox(state)
+        state["outbox"].append(self.outbox_entry())
+        save_state(api, config, 7, state)
+        issue["body"] = api.update_issue_body.call_args.args[1]
+        self.assertEqual(load_state(api, config, 7), state)
+        self.assertNotIn("outbox", original)
+        self.assertEqual(state["executions"], [self.receipt()])
+
+    def test_execution_upgrade_keeps_independent_outbox_copy(self):
+        state = upgrade_outbox({"schema_version": 1, "checks": []})
+        state["outbox"].append(self.outbox_entry())
+        copied = upgrade_state(state)
+        self.assertEqual(copied, state)
+        copied["outbox"][0]["status"] = "uncertain"
+        self.assertEqual(state["outbox"][0]["status"], "pending")
+
+    def test_invalid_outbox_stops_before_network(self):
+        entry = self.outbox_entry()
+        for rows in (
+            [{**entry, "proposal_issue": True}],
+            [{**entry, "revision": "invalid"}],
+            [{**entry, "attempts": True}],
+            [{**entry, "attempts": 3}],
+            [{**entry, "status": "sent"}],
+            [{**entry, "status": "retry"}],
+            [entry, entry],
+            [entry] * 101,
+        ):
+            api, config, _, _, _, original = self.fixture()
+            state = upgrade_outbox(original)
+            state["outbox"] = rows
             with self.subTest(rows=rows), self.assertRaises(StateError):
                 save_state(api, config, 7, state)
             api.get.assert_not_called()
