@@ -7,6 +7,8 @@ def incident_key(result):
         raise ValueError("Only unresolved problems have incident keys")
 
     fields = ("repo", "check", "status", "detail")
+    if "app" in result:
+        fields += ("app",)
     values = [result.get(field) for field in fields]
     if any(not isinstance(value, str) or not value.strip()
            for value in values):
