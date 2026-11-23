@@ -100,6 +100,33 @@ class ScanTests(unittest.TestCase):
         self.assertEqual(recovered["new_incidents"], [])
         self.assertEqual(recurred["new_incidents"], recurred["checks"])
 
+    def test_plan_cli_reports_continuing_failure_without_requeuing_it(self):
+        with patch("scan.check_workflow", return_value=("fail", "Stale")):
+            first = scan(self.fixture(), self.api())
+        config = {**self.fixture(), "mode": "active"}
+        previous = {"schema_version": 1, "checks": [{
+            "status": "fail",
+            "incident_id": first["checks"][0]["incident_id"],
+        }]}
+        api = self.api()
+        output = io.StringIO()
+        with (
+            patch("scan.load", return_value=config),
+            patch("scan.GitHub", return_value=api),
+            patch("scan.load_state", return_value=previous) as loader,
+            patch("scan.check_workflow", return_value=("fail", "Stale")),
+            redirect_stdout(output),
+        ):
+            result = main(["plan", "--state-issue", "7"])
+        self.assertEqual(result, 1)
+        report = json.loads(output.getvalue())
+        self.assertEqual(report["mode"], "plan")
+        self.assertEqual(report["status"], "fail")
+        self.assertEqual(report["repair_candidates"], [])
+        loader.assert_called_once_with(api, config, 7)
+        api.update_issue_body.assert_not_called()
+        api.create_issue.assert_not_called()
+
     def test_preview_uses_saved_state_without_updating_it(self):
         previous = {"schema_version": 1, "checks": []}
         report = {"status": "pass", "checks": []}
