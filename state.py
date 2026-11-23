@@ -188,13 +188,14 @@ def load_state(api, config, number):
     return _decode(issue.get("body"))
 
 
-def save_state(api, config, number, state):
+def save_state(api, config, number, state, *, expected):
     body = json.dumps(_validate(state), sort_keys=True)
     if len(body.encode("utf-8")) > MAX_ISSUE_BODY_BYTES:
         raise StateError("State exceeds size limit")
 
     path, issue = _issue(api, config, number)
-    _decode(issue.get("body"))
+    if _decode(issue.get("body")) != expected:
+        raise StateError("State changed since it was read")
     saved = api.update_issue_body(path, body)
     if (
         not isinstance(saved, dict)

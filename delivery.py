@@ -15,7 +15,8 @@ def deliver_proposal(
     if config["mode"] != "active" or not callable(send):
         raise ValueError("Delivery requires active mode and a transport")
 
-    state = upgrade_outbox(load_state(api, config, state_issue))
+    previous = load_state(api, config, state_issue)
+    state = upgrade_outbox(previous)
     entry = next(
         (
             row for row in state["outbox"]
@@ -40,22 +41,24 @@ def deliver_proposal(
             "attempts": 0,
         }
         state["outbox"].append(entry)
-        save_state(api, config, state_issue, state)
+        save_state(api, config, state_issue, state, expected=previous)
+        previous = upgrade_outbox(state)
 
     entry["status"] = "sending"
     entry["attempts"] = 1
-    save_state(api, config, state_issue, state)
+    save_state(api, config, state_issue, state, expected=previous)
+    previous = upgrade_outbox(state)
 
     try:
         if send(message) is not None:
             raise ValueError("Transport did not confirm acceptance")
     except Exception:
         entry["status"] = "uncertain"
-        save_state(api, config, state_issue, state)
+        save_state(api, config, state_issue, state, expected=previous)
         raise ValueError(
             "Email delivery is uncertain; automatic retry stopped"
         ) from None
 
     entry["status"] = "sent"
-    save_state(api, config, state_issue, state)
+    save_state(api, config, state_issue, state, expected=previous)
     return "sent"
