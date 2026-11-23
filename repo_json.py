@@ -1,6 +1,7 @@
 import base64
 import binascii
 import json
+from math import isfinite
 from pathlib import PurePosixPath
 from urllib.parse import quote
 
@@ -8,6 +9,26 @@ from checks import check_json
 from github_client import APIError
 
 MAX_JSON_BYTES = 65536
+
+
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate application JSON key")
+        result[key] = value
+    return result
+
+
+def _invalid_constant(value):
+    raise ValueError("Nonstandard application JSON constant")
+
+
+def _finite_float(value):
+    number = float(value)
+    if not isfinite(number):
+        raise ValueError("Application JSON number is out of range")
+    return number
 
 
 def check_repo_json(api, check, now=None):
@@ -38,8 +59,13 @@ def check_repo_json(api, check, now=None):
         return "unknown", "Repository JSON exceeds size limit"
 
     try:
-        data = json.loads(raw.decode("utf-8"))
-    except (UnicodeError, json.JSONDecodeError, RecursionError):
+        data = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_unique_object,
+            parse_constant=_invalid_constant,
+            parse_float=_finite_float,
+        )
+    except (ValueError, RecursionError):
         return "fail", "Application output is invalid JSON"
 
     return check_json(
