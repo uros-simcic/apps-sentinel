@@ -43,6 +43,27 @@ class RepoJSONTests(unittest.TestCase):
             "fail",
         )
 
+    def test_invalid_or_unsupported_values_fail_without_raising(self):
+        for value in (b"NaN", b"Infinity", b"-Infinity", b"1e400", b"9" * 4500):
+            raw = (
+                b'{"temperature":' + value
+                + b',"measured_at":"2026-11-14T11:00:00Z"}'
+            )
+            with self.subTest(value=value[:20]):
+                self.assertEqual(
+                    check_repo_json(self.api(raw), self.CHECK, self.NOW)[0],
+                    "fail",
+                )
+
+    def test_duplicate_fields_fail_instead_of_using_last_value(self):
+        raw = (
+            b'{"temperature":null,"temperature":0,'
+            b'"measured_at":"2026-11-14T11:00:00Z"}'
+        )
+        self.assertEqual(
+            check_repo_json(self.api(raw), self.CHECK, self.NOW)[0], "fail"
+        )
+
     def test_oversized_output_is_unknown(self):
         self.assertEqual(
             check_repo_json(
