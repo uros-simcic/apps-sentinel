@@ -37,6 +37,15 @@ def render_proposal(proposal):
             "json",
         ),
     ]
+    if "scope" in proposal:
+        scope = proposal["scope"]
+        parts.insert(-1, "### Approval scope\n\n" + _block(
+            "Operation: Run approved tests only\n"
+            f"Base branch: {scope['base_branch']}\n"
+            f"Test profile: {scope['test_profile']}\n"
+            f"Test profile SHA-256: {scope['test_profile_sha256']}",
+            "text",
+        ))
     body = "\n\n".join(parts) + "\n"
     if len(body.encode("utf-8")) > MAX_ISSUE_BODY_BYTES:
         raise ValueError("Rendered proposal exceeds issue size limit")

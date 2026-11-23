@@ -120,7 +120,7 @@ def read_sources(api, config, repo, base_sha, paths, allowed_paths):
 
 
 def prepare_repair(
-    api, config, repo, base_sha, paths, allowed_paths, answer
+    api, config, repo, base_sha, paths, allowed_paths, answer, *, scope=None
 ):
     if (
         not isinstance(answer, dict)
@@ -134,12 +134,15 @@ def prepare_repair(
     repair = build_edits(
         answer["edits"], bundle["sources"], allowed_paths
     )
-    proposal = make_proposal({
+    record = {
         "repo": bundle["repo"],
         "base_sha": bundle["base_sha"],
         "summary": answer["summary"],
         "explanation": answer["explanation"],
         "diff": repair["diff"],
-    })
+    }
+    if scope is not None:
+        record["scope"] = scope
+    proposal = make_proposal(record)
     render_proposal(proposal)
     return proposal
