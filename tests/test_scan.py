@@ -37,17 +37,23 @@ class ScanTests(unittest.TestCase):
         self.assertEqual(report["status"], "pass")
         self.assertEqual(report["checks"][0]["app"], "example-app")
         self.assertNotIn("incident_id", report["checks"][0])
+        self.assertEqual(report["repair_candidates"], [])
+        self.assertEqual(report["new_coverage_gaps"], [])
 
     def test_missing_evidence_is_not_healthy(self):
         with patch("scan.check_workflow", return_value=("unknown", "No access")):
             report = scan(self.fixture(), self.api())
         self.assertEqual(report["status"], "unknown")
+        self.assertEqual(report["repair_candidates"], [])
+        self.assertEqual(report["new_coverage_gaps"], report["checks"])
         self.assertRegex(report["checks"][0]["incident_id"], r"^[0-9a-f]{64}$")
 
     def test_failed_check_is_reported(self):
         with patch("scan.check_workflow", return_value=("fail", "Stale")):
             report = scan(self.fixture(), self.api())
         self.assertEqual(report["status"], "fail")
+        self.assertEqual(report["repair_candidates"], report["checks"])
+        self.assertEqual(report["new_coverage_gaps"], [])
         self.assertRegex(report["checks"][0]["incident_id"], r"^[0-9a-f]{64}$")
 
     def test_repeated_failure_keeps_same_incident(self):
@@ -81,6 +87,8 @@ class ScanTests(unittest.TestCase):
             repeated = scan(self.fixture(), self.api(), previous=first)
         self.assertEqual(first["new_incidents"], first["checks"])
         self.assertEqual(repeated["new_incidents"], [])
+        self.assertEqual(repeated["repair_candidates"], [])
+        self.assertEqual(repeated["new_coverage_gaps"], [])
 
     def test_scan_recovery_and_recurrence(self):
         with patch("scan.check_workflow", return_value=("fail", "Stale")):
