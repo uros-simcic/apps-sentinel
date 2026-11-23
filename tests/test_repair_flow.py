@@ -60,7 +60,12 @@ class RepairFlowTests(unittest.TestCase):
             self.assertEqual(result, "sent")
         self.assertEqual(send.call_count, 1)
         body = send.call_args.args[0].get_content()
-        for displayed in (published["url"], revision, proposal["diff"]):
+        for displayed in (
+            published["url"], revision, proposal["diff"],
+            "Operation: Run approved tests only", "Base branch: main",
+            "Test profile: example-checks",
+            f"Test profile SHA-256: {scope['test_profile_sha256']}",
+        ):
             self.assertIn(displayed, body)
 
         api.pages.return_value = [{
