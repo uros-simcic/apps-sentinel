@@ -110,11 +110,16 @@ def check_approval(api, config, state_issue, number, revision):
         raise ValueError("Current owner approval required")
 
     proposal = review["proposal"]
+    scope = proposal.get("scope")
+    if scope is None:
+        raise ValueError("Explicit test scope required for execution approval")
     target = "/repos/" + proposal["repo"]
     repo = api.get(target)
     branch = repo.get("default_branch") if isinstance(repo, dict) else None
     if not isinstance(branch, str) or not branch:
         raise ValueError("Missing target default branch")
+    if branch != scope["base_branch"]:
+        raise ValueError("Approved proposal base branch is no longer current")
     head = api.get(target + "/commits/" + quote(branch, safe=""))
     if not isinstance(head, dict) or head.get("sha") != proposal["base_sha"]:
         raise ValueError("Approved proposal base is no longer current")
