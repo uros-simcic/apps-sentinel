@@ -19,9 +19,10 @@ class DeliveryTests(unittest.TestCase):
         }
         saves = []
 
-        def save(api, config, number, value):
+        def save(api, config, number, value, *, expected):
             if save_error:
                 raise ValueError("State was not confirmed")
+            self.assertEqual(expected, saves[-1] if saves else state)
             saves.append(deepcopy(value))
 
         with (

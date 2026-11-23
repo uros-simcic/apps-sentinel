@@ -37,6 +37,22 @@ class StateTests(unittest.TestCase):
         )
         return api, config, owner, repo, issue, state
 
+    def save_initial(self, api, config, state):
+        save_state(
+            api, config, 7, state, expected={"schema_version": 1, "checks": []},
+        )
+
+    def test_stale_snapshot_cannot_overwrite_newer_state(self):
+        api, config, _, _, issue, previous = self.fixture()
+        changed = {
+            **previous,
+            "checks": [{"status": "fail", "incident_id": "a" * 64}],
+        }
+        issue["body"] = json.dumps(changed)
+        with self.assertRaisesRegex(StateError, "State changed"):
+            self.save_initial(api, config, previous)
+        api.update_issue_body.assert_not_called()
+
     def test_loads_explicit_private_state_issue(self):
         api, config, _, _, _, state = self.fixture()
         self.assertEqual(load_state(api, config, 7), state)
@@ -45,7 +61,7 @@ class StateTests(unittest.TestCase):
     def test_saves_only_selected_issue_body(self):
         api, config, _, _, _, state = self.fixture()
         state["checks"] = [{"status": "fail", "incident_id": "a" * 64}]
-        save_state(api, config, 7, state)
+        self.save_initial(api, config, state)
         path, body = api.update_issue_body.call_args.args
         self.assertEqual(
             path, "/repos/" + config["control_repo"] + "/issues/7"
@@ -60,7 +76,7 @@ class StateTests(unittest.TestCase):
             else:
                 repo["private"] = False
             with self.subTest(target=target), self.assertRaises(StateError):
-                save_state(api, config, 7, state)
+                self.save_initial(api, config, state)
             api.update_issue_body.assert_not_called()
 
     def test_rejects_wrong_or_closed_issue_and_pull_request(self):
@@ -73,7 +89,7 @@ class StateTests(unittest.TestCase):
             api, config, _, _, issue, state = self.fixture()
             issue.update(change)
             with self.subTest(change=change), self.assertRaises(StateError):
-                save_state(api, config, 7, state)
+                self.save_initial(api, config, state)
             api.update_issue_body.assert_not_called()
 
     def test_does_not_overwrite_invalid_existing_content(self):
@@ -85,7 +101,7 @@ class StateTests(unittest.TestCase):
             api, config, _, _, issue, state = self.fixture()
             issue["body"] = body
             with self.subTest(body=body), self.assertRaises(StateError):
-                save_state(api, config, 7, state)
+                self.save_initial(api, config, state)
             api.update_issue_body.assert_not_called()
 
     def test_rejects_unconfirmed_save(self):
@@ -93,7 +109,7 @@ class StateTests(unittest.TestCase):
         api.update_issue_body.side_effect = None
         api.update_issue_body.return_value = {"number": 7, "body": "different"}
         with self.assertRaises(StateError):
-            save_state(api, config, 7, state)
+            self.save_initial(api, config, state)
 
     def receipt(self):
         return {
@@ -119,7 +135,7 @@ class StateTests(unittest.TestCase):
         api, config, _, _, issue, state = self.fixture()
         state = upgrade_state(state)
         state["executions"].append(self.receipt())
-        save_state(api, config, 7, state)
+        self.save_initial(api, config, state)
         issue["body"] = api.update_issue_body.call_args.args[1]
         self.assertEqual(load_state(api, config, 7), state)
 
@@ -136,7 +152,7 @@ class StateTests(unittest.TestCase):
                 "schema_version": 2, "checks": [], "executions": rows,
             }
             with self.subTest(rows=rows), self.assertRaises(StateError):
-                save_state(api, config, 7, state)
+                self.save_initial(api, config, state)
             api.get.assert_not_called()
             api.update_issue_body.assert_not_called()
 
@@ -154,7 +170,7 @@ class StateTests(unittest.TestCase):
         state["executions"].append(self.receipt())
         state = upgrade_outbox(state)
         state["outbox"].append(self.outbox_entry())
-        save_state(api, config, 7, state)
+        self.save_initial(api, config, state)
         issue["body"] = api.update_issue_body.call_args.args[1]
         self.assertEqual(load_state(api, config, 7), state)
         self.assertNotIn("outbox", original)
@@ -184,6 +200,6 @@ class StateTests(unittest.TestCase):
             state = upgrade_outbox(original)
             state["outbox"] = rows
             with self.subTest(rows=rows), self.assertRaises(StateError):
-                save_state(api, config, 7, state)
+                self.save_initial(api, config, state)
             api.get.assert_not_called()
             api.update_issue_body.assert_not_called()
