@@ -83,6 +83,26 @@ class ExecutionGateTests(unittest.TestCase):
                 self.check(api, config)
         api.get.assert_not_called()
 
+    def test_legacy_proposal_cannot_authorize_execution(self):
+        api, config, review = self.fixture()
+        del review["proposal"]["scope"]
+        with patch("approval.read_replies", return_value=review):
+            with self.assertRaisesRegex(ValueError, "Explicit test scope"):
+                self.check(api, config)
+        api.get.assert_not_called()
+
+    def test_changed_branch_blocks_execution_even_at_same_sha(self):
+        api, config, review = self.fixture()
+        api.get.side_effect = [
+            {"default_branch": "release"}, {"sha": "a" * 40},
+        ]
+        with patch("approval.read_replies", return_value=review):
+            with self.assertRaisesRegex(ValueError, "base branch"):
+                self.check(api, config)
+        api.get.assert_called_once_with(
+            "/repos/" + review["proposal"]["repo"]
+        )
+
     def test_changed_target_commit_blocks_execution(self):
         api, config, review = self.fixture()
         api.get.side_effect = [
