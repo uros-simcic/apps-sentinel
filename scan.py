@@ -63,6 +63,12 @@ def scan(config, api, previous=None):
     report["new_incidents"] = new_incidents(
         report, previous if previous is not None else {"checks": []}
     )
+    report["repair_candidates"] = [
+        result for result in report["new_incidents"] if result["status"] == "fail"
+    ]
+    report["new_coverage_gaps"] = [
+        result for result in report["new_incidents"] if result["status"] == "unknown"
+    ]
     return report
 
 
