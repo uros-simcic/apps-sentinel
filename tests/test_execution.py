@@ -52,6 +52,52 @@ class ExecutionClaimTests(unittest.TestCase):
                     self.claim(Mock())
             saver.assert_not_called()
 
+    def test_new_comment_cannot_claim_same_revision(self):
+        approved = {**self.APPROVED, "comment_id": 2}
+        for status in ("claimed", "succeeded", "failed", "uncertain"):
+            state = {
+                "schema_version": 2, "checks": [],
+                "executions": [{
+                    "proposal_issue": 8, "revision": "b" * 64,
+                    "comment_id": 1, "status": status,
+                }],
+            }
+            with (
+                self.subTest(status=status),
+                patch("execution.check_approval", return_value=approved),
+                patch("execution.load_state", return_value=state),
+                patch("execution.save_state") as saver,
+            ):
+                with self.assertRaisesRegex(ValueError, "already been claimed"):
+                    self.claim(Mock())
+                saver.assert_not_called()
+
+    def test_distinct_approved_revision_can_be_claimed(self):
+        revision = "c" * 64
+        approved = {"proposal": {"revision": revision}, "comment_id": 2}
+        state = {
+            "schema_version": 2, "checks": [],
+            "executions": [{
+                "proposal_issue": 8, "revision": "b" * 64,
+                "comment_id": 1, "status": "succeeded",
+            }],
+        }
+        with (
+            patch("execution.check_approval", return_value=approved),
+            patch("execution.load_state", return_value=state),
+            patch("execution.save_state") as saver,
+        ):
+            self.assertEqual(
+                claim_execution(Mock(), self.CONFIG, 7, 8, revision), approved
+            )
+        self.assertEqual(saver.call_args.args[3]["executions"], [
+            *state["executions"],
+            {
+                "proposal_issue": 8, "revision": revision,
+                "comment_id": 2, "status": "claimed",
+            },
+        ])
+
     def test_unconfirmed_claim_does_not_return_execution_scope(self):
         with (
             patch("execution.check_approval", return_value=self.APPROVED),
