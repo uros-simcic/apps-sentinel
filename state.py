@@ -56,11 +56,13 @@ def _validate(state):
         raise StateError("Invalid state document")
     version = state.get("schema_version")
     expected = {"schema_version", "checks"}
-    if version == 2:
+    if version in (2, 3):
         expected.add("executions")
+    if version == 3:
+        expected.add("outbox")
     if (
         type(version) is not int
-        or version not in (1, 2)
+        or version not in (1, 2, 3)
         or set(state) != expected
         or not isinstance(state["checks"], list)
     ):
@@ -78,8 +80,10 @@ def _validate(state):
         ):
             raise StateError("Invalid or duplicate state incident")
         seen.add(row["incident_id"])
-    if version == 2:
+    if version in (2, 3):
         _validate_executions(state["executions"])
+    if version == 3:
+        _validate_outbox(state["outbox"])
     return state
 
 
@@ -108,15 +112,53 @@ def _validate_executions(receipts):
         seen.add(row["comment_id"])
 
 
+def _validate_outbox(rows):
+    if not isinstance(rows, list) or len(rows) > 100:
+        raise StateError("Invalid or oversized outbox")
+    seen = set()
+    for row in rows:
+        if (
+            not isinstance(row, dict)
+            or set(row) != {
+                "proposal_issue", "revision", "status", "attempts"
+            }
+            or type(row["proposal_issue"]) is not int
+            or row["proposal_issue"] <= 0
+            or not isinstance(row["revision"], str)
+            or not re.fullmatch(r"[0-9a-f]{64}", row["revision"])
+            or row["status"] not in (
+                "pending", "sending", "sent", "uncertain"
+            )
+            or type(row["attempts"]) is not int
+            or not 0 <= row["attempts"] <= 2
+            or (row["status"] != "pending" and row["attempts"] == 0)
+        ):
+            raise StateError("Invalid outbox entry")
+        key = (row["proposal_issue"], row["revision"])
+        if key in seen:
+            raise StateError("Duplicate outbox entry")
+        seen.add(key)
+
+
 def upgrade_state(state):
     _validate(state)
-    return {
-        "schema_version": 2,
+    result = {
+        "schema_version": 3 if state["schema_version"] == 3 else 2,
         "checks": [dict(row) for row in state["checks"]],
         "executions": [
             dict(row) for row in state.get("executions", [])
         ],
     }
+    if state["schema_version"] == 3:
+        result["outbox"] = [dict(row) for row in state["outbox"]]
+    return result
+
+
+def upgrade_outbox(state):
+    result = upgrade_state(state)
+    result["schema_version"] = 3
+    result.setdefault("outbox", [])
+    return result
 
 
 def _object(pairs):
