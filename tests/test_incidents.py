@@ -6,6 +6,7 @@ from incidents import incident_key, new_incidents
 class IncidentTests(unittest.TestCase):
     def fixture(self):
         return {
+            "app": "example-app",
             "repo": "example-owner/example-app",
             "check": "output",
             "status": "fail",
@@ -58,6 +59,25 @@ class IncidentTests(unittest.TestCase):
             with self.subTest(status=status):
                 report = self.report(status)
                 self.assertEqual(new_incidents(report, report), [])
+
+    def test_shared_repo_and_check_do_not_hide_another_apps_failure(self):
+        previous = self.report("fail")
+        first = previous["checks"][0]
+        second = {**first, "app": "other-app"}
+        second["incident_id"] = incident_key(second)
+        self.assertEqual(
+            new_incidents({"checks": [first, second]}, previous), [second]
+        )
+
+    def test_legacy_unscoped_id_is_surfaced_as_new_once(self):
+        report = self.report("fail")
+        legacy = {**report["checks"][0]}
+        del legacy["app"]
+        legacy["incident_id"] = incident_key(legacy)
+        self.assertEqual(
+            new_incidents(report, {"checks": [legacy]}), report["checks"]
+        )
+        self.assertEqual(new_incidents(report, report), [])
 
     def test_recovery_is_silent_and_recurrence_is_new(self):
         failed = self.report("fail")
