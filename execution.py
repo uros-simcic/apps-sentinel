@@ -17,9 +17,16 @@ def claim_execution(api, config, state_issue, number, revision):
     ):
         raise ValueError("Approval has already been consumed")
 
+    revision = approved["proposal"]["revision"]
+    if any(
+        row["proposal_issue"] == number and row["revision"] == revision
+        for row in state["executions"]
+    ):
+        raise ValueError("Proposal revision has already been claimed")
+
     state["executions"].append({
         "proposal_issue": number,
-        "revision": approved["proposal"]["revision"],
+        "revision": revision,
         "comment_id": comment_id,
         "status": "claimed",
     })
