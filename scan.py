@@ -16,7 +16,22 @@ def scan(config, api, previous=None):
     validate(config)
     if config["mode"] != "preview":
         raise ConfigError("Only preview scans are currently supported")
+    return _scan(config, api, previous)
 
+
+def plan_cycle(config, api, state_issue):
+    validate(config)
+    if config["mode"] != "active":
+        raise ConfigError("Planning requires active configuration")
+    if type(state_issue) is not int or state_issue <= 0:
+        raise ConfigError("Planning requires a state issue number")
+    previous = load_state(api, config, state_issue)
+    report = _scan(config, api, previous)
+    report["mode"] = "plan"
+    return report
+
+
+def _scan(config, api, previous):
     owner = api.get("/user")
     if not isinstance(owner, dict):
         raise APIError("Invalid GitHub identity response")
@@ -74,7 +89,7 @@ def scan(config, api, previous=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("validate", "scan"))
+    parser.add_argument("command", choices=("validate", "scan", "plan"))
     parser.add_argument("--config", default="config.json")
     parser.add_argument(
         "--state-issue", type=int,
@@ -88,14 +103,23 @@ def main(argv=None):
             print(json.dumps({"status": "valid", "mode": config["mode"]}))
             return 0
 
-        if config["mode"] != "preview":
-            raise ConfigError("Only preview scans are currently supported")
-        api = GitHub(os.environ.get("READ_TOKEN"))
-        previous = (
-            load_state(api, config, args.state_issue)
-            if args.state_issue is not None else None
-        )
-        report = scan(config, api, previous=previous)
+        if args.command == "plan":
+            if (
+                config["mode"] != "active"
+                or args.state_issue is None or args.state_issue <= 0
+            ):
+                raise ConfigError("Planning requires active mode and a state issue")
+            api = GitHub(os.environ.get("READ_TOKEN"))
+            report = plan_cycle(config, api, args.state_issue)
+        else:
+            if config["mode"] != "preview":
+                raise ConfigError("Only preview scans are currently supported")
+            api = GitHub(os.environ.get("READ_TOKEN"))
+            previous = (
+                load_state(api, config, args.state_issue)
+                if args.state_issue is not None else None
+            )
+            report = scan(config, api, previous=previous)
         print(json.dumps(report, indent=2))
         return 0 if report["status"] == "pass" else 1
     except (ConfigError, APIError, ValueError) as exc:
